@@ -1,0 +1,202 @@
+import tkinter as tk
+from tkinter import filedialog
+import re
+
+class MIPS_GUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Simulador MIPS com Arquivo - Dark Mode")
+        self.root.configure(bg="#1e1e1e")
+        self.memory = {}  # Endereço → valor
+
+        self.registers = {f"${i}": 0 for i in range(32)}
+        self.aliases = {
+            "$zero": "$0", "$t0": "$8", "$t1": "$9", "$t2": "$10", "$t3": "$11",
+            "$t4": "$12", "$t5": "$13", "$t6": "$14", "$t7": "$15",
+            "$s0": "$16", "$s1": "$17", "$s2": "$18", "$s3": "$19",
+            "$s4": "$20", "$s5": "$21", "$s6": "$22", "$s7": "$23"
+        }
+
+        self.program = []
+        self.program_counter = 0
+
+        self.setup_ui()
+
+    def execute_all(self):
+        while self.program_counter < len(self.program):
+            instr = self.program[self.program_counter]
+            self.program_counter += 1
+            self.console.insert(tk.END, f"> {instr}\n")
+            result = self.run_instruction(instr)
+            self.console.insert(tk.END, result + "\n")
+            self.console.see(tk.END)
+            self.update_registers()
+        self.console.insert(tk.END, "\nFim do programa.\n")
+
+    def limpar_tudo(self):
+        # Limpa console
+        self.console.delete("1.0", tk.END)
+        self.console.insert(tk.END, "Simulador limpo.\n")
+
+        # Reinicia registradores
+        self.registers = {f"${i}": 0 for i in range(32)}
+
+        # Reinicia programa
+        self.program = []
+        self.program_counter = 0
+
+        # Atualiza interface
+        self.update_registers()
+
+    def setup_ui(self):
+        input_frame = tk.Frame(self.root, bg="#1e1e1e")
+        input_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        self.btn_load = tk.Button(input_frame, text="Carregar Arquivo", command=self.load_file, bg="#333", fg="white")
+        self.btn_load.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.btn_next = tk.Button(input_frame, text="Executar Próxima", command=self.execute_next, bg="#333", fg="white")
+        self.btn_next.pack(side=tk.LEFT)
+
+        self.console = tk.Text(self.root, height=15, bg="#111", fg="lime", insertbackground="lime", font=("Consolas", 12))
+        self.console.pack(fill=tk.BOTH, expand=True, padx=10)
+        self.console.insert(tk.END, "Simulador iniciado. Carregue um arquivo .asm\n")
+
+        self.btn_clear = tk.Button(input_frame, text="Limpar", command=self.limpar_tudo, bg="#333", fg="white")
+        self.btn_clear.pack(side=tk.LEFT, padx=(10, 0))
+
+        self.btn_all = tk.Button(input_frame, text="Executar Tudo", command=self.execute_all, bg="#333", fg="white")
+        self.btn_all.pack(side=tk.LEFT, padx=(10, 0))
+
+        self.reg_frame = tk.LabelFrame(self.root, text="Registradores", fg="white", bg="#1e1e1e", font=("Consolas", 10))
+        self.reg_frame.pack(fill=tk.X, padx=10)
+
+        self.labels = {}
+        for i, name in enumerate(["$t0", "$t1", "$t2", "$t3", "$t4", "$t5", "$t6", "$t7",
+                                  "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7"]):
+            lbl = tk.Label(self.reg_frame, text=f"{name} = 0", fg="lime", bg="#1e1e1e", font=("Consolas", 10))
+            lbl.grid(row=i // 4, column=i % 4, sticky="w", padx=10)
+            self.labels[name] = lbl
+
+    def reg(self, r):
+        return self.aliases.get(r, r)
+
+    def get_val(self, r):
+        return self.registers.get(self.reg(r), 0)
+
+    def set_val(self, r, val):
+        if self.reg(r) != "$0":
+            self.registers[self.reg(r)] = val
+
+    def update_registers(self):
+        for name in self.labels:
+            self.labels[name].config(text=f"{name} = {self.get_val(name)}")
+
+    def load_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Assembly Files", "*.asm"), ("All Files", "*.*")])
+        if file_path:
+            with open(file_path, "r") as f:
+                self.program = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+            self.program_counter = 0
+            self.console.insert(tk.END, f"\nArquivo carregado: {file_path}\n")
+            self.console.insert(tk.END, f"{len(self.program)} instruções carregadas.\n")
+
+    def execute_next(self):
+        if self.program_counter < len(self.program):
+            instr = self.program[self.program_counter]
+            self.program_counter += 1
+            self.console.insert(tk.END, f"> {instr}\n")
+            result = self.run_instruction(instr)
+            self.console.insert(tk.END, result + "\n")
+            self.console.see(tk.END)
+            self.update_registers()
+        else:
+            self.console.insert(tk.END, "\nFim do programa.\n")
+
+    def run_instruction(self, instr):
+        try:
+            parts = re.split(r"[,\s()]+", instr.lower())
+            opcode = parts[0]
+
+            if opcode == "add":
+                rd, rs, rt = map(self.reg, parts[1:4])
+                self.set_val(rd, self.get_val(rs) + self.get_val(rt))
+                return f"{rd} = {self.get_val(rd)}"
+
+            elif opcode == "addi":
+                rt, rs, imm = self.reg(parts[1]), self.reg(parts[2]), int(parts[3])
+                self.set_val(rt, self.get_val(rs) + imm)
+                return f"{rt} = {self.get_val(rt)}"
+
+            elif opcode == "sub":
+                rd, rs, rt = map(self.reg, parts[1:4])
+                self.set_val(rd, self.get_val(rs) - self.get_val(rt))
+                return f"{rd} = {self.get_val(rd)}"
+
+            elif opcode == "and":
+                rd, rs, rt = map(self.reg, parts[1:4])
+                self.set_val(rd, self.get_val(rs) & self.get_val(rt))
+                return f"{rd} = {self.get_val(rd)}"
+
+            elif opcode == "or":
+                rd, rs, rt = map(self.reg, parts[1:4])
+                self.set_val(rd, self.get_val(rs) | self.get_val(rt))
+                return f"{rd} = {self.get_val(rd)}"
+
+            elif opcode == "sll":
+                rd, rt, shamt = self.reg(parts[1]), self.reg(parts[2]), int(parts[3])
+                self.set_val(rd, self.get_val(rt) << shamt)
+                return f"{rd} = {self.get_val(rd)}"
+
+            elif opcode == "lui":
+                rt, imm = self.reg(parts[1]), int(parts[2])
+                self.set_val(rt, imm << 16)
+                return f"{rt} = {self.get_val(rt)}"
+            elif opcode == "lw":
+                rt, offset_str, base = self.reg(parts[1]), parts[2], self.reg(parts[3])
+                offset = int(offset_str)
+                address = self.get_val(base) + offset
+                val = self.memory.get(address, 0)
+                self.set_val(rt, val)
+                return f"{rt} = Mem[{address}] = {val}"
+
+            elif opcode == "sw":
+                rt, offset_str, base = self.reg(parts[1]), parts[2], self.reg(parts[3])
+                offset = int(offset_str)
+                address = self.get_val(base) + offset
+                val = self.get_val(rt)
+                self.memory[address] = val
+                return f"Mem[{address}] = {val} (de {rt})"
+
+            elif opcode == "slt":
+                rd, rs, rt = map(self.reg, parts[1:4])
+                result = 1 if self.get_val(rs) < self.get_val(rt) else 0
+                self.set_val(rd, result)
+                return f"{rd} = {result} (slt entre {rs} e {rt})"
+
+            elif opcode == "slti":
+                rt, rs, imm = self.reg(parts[1]), self.reg(parts[2]), int(parts[3])
+                result = 1 if self.get_val(rs) < imm else 0
+                self.set_val(rt, result)
+                return f"{rt} = {result} (slti entre {rs} e {imm})"
+            
+            elif opcode == "print":
+                reg = self.reg(parts[1])
+                return f"{reg} = {self.get_val(reg)}"
+
+            else:
+                return f"Instrução não reconhecida: {opcode}"
+        except Exception as e:
+            return f"Erro ao executar: {e}"
+
+if __name__ == "__main__":
+    import sys
+    import os
+
+    # (opcional) Corrigir caminho de arquivos ao rodar o .exe
+    if getattr(sys, 'frozen', False):
+        os.chdir(sys._MEIPASS)
+
+    root = tk.Tk()
+    app = MIPS_GUI(root)
+    root.mainloop()
